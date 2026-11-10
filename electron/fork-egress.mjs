@@ -7,6 +7,7 @@ export const DENYLIST = Object.freeze([
   { suffix: "openmausbot.com" },
   { suffix: "milindsoni201.workers.dev" },
   { host: "omb-cloud-staging.fly.dev" },
+  { host: "logos.composio.dev" },
   { host: "www.google.com", path: "/s2/favicons" },
   { host: "github.com", path: "/milind-soni/" },
   { host: "raw.githubusercontent.com", path: "/milind-soni/" },

@@ -20,6 +20,10 @@ const DENIED = [
   { rule: "*.openmausbot.com", match: (h) => h === "openmausbot.com" || h.endsWith(".openmausbot.com") },
   { rule: "*.milindsoni201.workers.dev", match: (h) => h.endsWith(".milindsoni201.workers.dev") },
   { rule: "omb-cloud-staging.fly.dev", match: (h) => h === "omb-cloud-staging.fly.dev" },
+  { rule: "logos.composio.dev", match: (h) => h === "logos.composio.dev" },
+  // Sent by the Claude Code CLI the server spawns, which only DISABLE_TELEMETRY can stop.
+  { rule: "Claude CLI Datadog metrics", match: (h) => h === "http-intake.logs.us5.datadoghq.com" },
+  { rule: "Claude CLI Datadog errors", match: (h) => h === "browser-intake-us5-datadoghq.com" },
   { rule: "www.google.com (s2/favicons)", match: (h) => h === "www.google.com" },
   { rule: "github.com (milind-soni)", match: (h) => h === "github.com" },
   { rule: "raw.githubusercontent.com (milind-soni)", match: (h) => h === "raw.githubusercontent.com" },

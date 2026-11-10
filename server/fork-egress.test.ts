@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { guardFetch } from "./fork-egress.ts";
+import { guardFetch, quietEngineTelemetry } from "./fork-egress.ts";
 
 const original = globalThis.fetch;
 afterEach(() => {
@@ -25,6 +25,25 @@ describe("the server's egress guard", () => {
     const init = { method: "POST", body: "x" };
     expect(await target.fetch("https://api.anthropic.com/v1/messages", init)).toBe(response);
     expect(calls).toEqual([["https://api.anthropic.com/v1/messages", init]]);
+  });
+
+  it("turns off the Claude CLI's telemetry and error reports for every engine it spawns, unless already set", async () => {
+    const env: NodeJS.ProcessEnv = { DISABLE_ERROR_REPORTING: "0" };
+    quietEngineTelemetry(env);
+    expect(env).toEqual({ DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "0" });
+    const saved = { telemetry: process.env.DISABLE_TELEMETRY, errors: process.env.DISABLE_ERROR_REPORTING };
+    delete process.env.DISABLE_TELEMETRY;
+    delete process.env.DISABLE_ERROR_REPORTING;
+    try {
+      vi.resetModules();
+      await import("./fork-egress.ts");
+      expect([process.env.DISABLE_TELEMETRY, process.env.DISABLE_ERROR_REPORTING]).toEqual(["1", "1"]);
+    } finally {
+      for (const [key, value] of [["DISABLE_TELEMETRY", saved.telemetry], ["DISABLE_ERROR_REPORTING", saved.errors]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it("is in force for the whole process once the module is loaded", async () => {

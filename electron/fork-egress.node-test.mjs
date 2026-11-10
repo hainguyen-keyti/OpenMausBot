@@ -22,6 +22,7 @@ const BLOCKED = [
   "https://github.com//milind-soni/OpenMausBot",
   "https://github.com/%6Dilind-soni/OpenMausBot",
   "http://cloud.openmausbot.com:8080/x",
+  "https://logos.composio.dev/api/slack",
 ];
 
 const ALLOWED = [
@@ -38,6 +39,8 @@ const ALLOWED = [
   "https://github.com/other/milind-soni",
   "https://raw.githubusercontent.com/other/repo/main/x",
   "https://api.github.com/users/milind-soni",
+  "https://backend.composio.dev/api/v3/toolkits",
+  "https://connect.composio.dev/link/x",
   "http://127.0.0.1:5173/api/bots",
   "file:///C:/cloud.openmausbot.com/x",
   "not a url",
