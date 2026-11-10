@@ -18,7 +18,11 @@ let pending: Array<(ph: PostHog) => void> = [];
 // Outranks storage, so a rejected write cannot lose an opt-out.
 let choice: boolean | undefined;
 
+// This fork's build ships without analytics (DECISIONS 2026-11-10): only a build made with VITE_OMB_ANALYTICS=on loads PostHog.
+const buildAllowsAnalytics = () => import.meta.env.VITE_OMB_ANALYTICS === "on";
+
 export function analyticsEnabled(): boolean {
+  if (!buildAllowsAnalytics()) return false;
   if (choice !== undefined) return choice;
   const desktop = desktopSwitch()?.enabled();
   if (typeof desktop === "boolean") return desktop;
