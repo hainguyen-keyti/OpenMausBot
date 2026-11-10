@@ -338,6 +338,24 @@ it("downloads an update by itself: the first check after launch starts it, and n
   expect(statuses.at(-1)).toBe("downloaded");
 });
 
+it("a packaged build started with updates off never checks, downloads or offers anything, even when asked", async () => {
+  const rule = mainRule();
+  const local = page(LOCAL);
+  rule.show(local);
+  const { updater, autoUpdater, handlers } = await load(rule.pageAllowed);
+  updater.attachUpdaterWindow(rule.window);
+  updater.startUpdater(null, { updates: false });
+
+  await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 15_000);
+  await handlers.get("update:check")(local.event);
+  await settle();
+
+  expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+  expect(autoUpdater.downloadUpdate).not.toHaveBeenCalled();
+  expect(autoUpdater.listenerCount("update-available")).toBe(0);
+  expect(handlers.get("update:get-state")(local.event)).toMatchObject({ status: "idle" });
+});
+
 it("My Cloud's page reads and drives the update channels, and another server's page is refused", async () => {
   const rule = mainRule();
   const { handlers } = await load(rule.pageAllowed);

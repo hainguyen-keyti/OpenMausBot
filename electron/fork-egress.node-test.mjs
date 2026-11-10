@@ -83,6 +83,13 @@ test("the desktop guards its own fetch at load and blocks the default session be
   assert.equal(main.slice(ready).split("\n")[1].trim(), "installEgressBlock(session.defaultSession);", "the first step once ready");
 });
 
+test("the desktop starts its updater with updates off", () => {
+  const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+  const calls = main.split("\n").filter((line) => /\bstartUpdater\(/.test(line) && !line.startsWith("import"));
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /\}\), \{ updates: false \}\);\r?$/);
+});
+
 test("the session block cancels exactly the denylisted requests", () => {
   let listener = null;
   const session = { webRequest: { onBeforeRequest: (fn) => { listener = fn; } } };

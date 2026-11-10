@@ -146,9 +146,12 @@ export function attachUpdaterWindow(mainWindow) {
   win = mainWindow;
 }
 
-/** `signals` (quietSignals): what tells a quiet moment; without them a downloaded update installs only on Restart or quit. */
-export function startUpdater(signals = null) {
-  if (!app.isPackaged) {
+/**
+ * `signals` (quietSignals): what tells a quiet moment; without them a downloaded update installs only on Restart or quit.
+ * `updates: false` keeps a packaged build idle too: this fork's build has no update feed of its own yet.
+ */
+export function startUpdater(signals = null, { updates = true } = {}) {
+  if (!app.isPackaged || !updates) {
     updaterCoordinator = null;
     setState({ status: "idle" });
     return;
