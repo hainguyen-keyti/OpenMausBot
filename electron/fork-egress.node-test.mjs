@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { blockingFetch, installEgressBlock, isBlockedUrl } from "./fork-egress.mjs";
@@ -71,6 +72,15 @@ test("the fetch wrapper passes an allowed request through unchanged", async () =
   const init = { method: "POST", body: "x" };
   assert.equal(await fetch("https://api.anthropic.com/v1/messages", init), response);
   assert.deepEqual(calls, [["https://api.anthropic.com/v1/messages", init]]);
+});
+
+test("the desktop guards its own fetch at load and blocks the default session before anything is ready", () => {
+  const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+  assert.match(main, /^import \{ blockingFetch, installEgressBlock \} from "\.\/fork-egress\.mjs";\r?$/m);
+  assert.match(main, /^globalThis\.fetch = blockingFetch\(globalThis\.fetch\);\r?$/m);
+  const ready = main.indexOf("app.whenReady().then(async () => {");
+  assert.ok(ready > 0);
+  assert.equal(main.slice(ready).split("\n")[1].trim(), "installEgressBlock(session.defaultSession);", "the first step once ready");
 });
 
 test("the session block cancels exactly the denylisted requests", () => {

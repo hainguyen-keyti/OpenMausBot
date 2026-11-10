@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildErrorPage, desktopViewerErrorPage } from "./error-pages.mjs";
+import { blockingFetch, installEgressBlock } from "./fork-egress.mjs";
 import { startCua, stopCua, registerCuaIpc, requestComputerUse, setCuaStateListener, grantLocalComputer } from "./cua.mjs";
 import { createAndroidDeviceController } from "./android-device.mjs";
 import { finishSpeech, speechBusy, startSpeech, stopSpeech } from "./speech.mjs";
@@ -176,6 +177,9 @@ function applyUnreadBadge(win = mainWindow) {
   }
   if (process.platform === "darwin" || process.platform === "linux") app.setBadgeCount(count);
 }
+
+// This build contacts no upstream service on its own (DECISIONS 2026-11-10); the session is blocked once ready.
+globalThis.fetch = blockingFetch(globalThis.fetch);
 
 // GNOME groups the window with its desktop entry only when both identities match; set before ready.
 if (process.platform === "linux") {
@@ -2819,6 +2823,7 @@ setCuaStateListener((connection) => {
 });
 
 app.whenReady().then(async () => {
+  installEgressBlock(session.defaultSession);
   await evictStartupCacheOnce({
     userData: app.getPath("userData"),
     currentVersion: app.getVersion(),
