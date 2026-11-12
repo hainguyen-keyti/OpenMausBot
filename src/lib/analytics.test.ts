@@ -75,7 +75,11 @@ beforeEach(() => {
   ph.optIns = [];
 });
 // Restored in afterEach: an inline restore would be skipped when an assertion fails mid-test.
-afterEach(() => vi.stubGlobal("localStorage", baseStorage));
+afterEach(() => {
+  vi.stubGlobal("localStorage", baseStorage);
+  vi.unstubAllEnvs();
+});
+// VITE_OMB_ANALYTICS=on comes from vite.config.ts for upstream's cases; this fork's default is tested at the end.
 
 // resetModules keeps the mocked posthog-js cached, so it is registered again and `loads` counts this graph only.
 async function freshAnalytics() {
@@ -491,5 +495,29 @@ describe("app_active", () => {
     vi.setSystemTime(new Date(2026, 9, 24, 8, 0));
     page.fire("focus");
     expect(active()).toHaveLength(2);
+  });
+});
+
+describe("this fork's build, made without VITE_OMB_ANALYTICS=on", () => {
+  beforeEach(() => vi.stubEnv("VITE_OMB_ANALYTICS", ""));
+
+  it("is off for a fresh install, and loads nothing at start", async () => {
+    const analytics = await freshAnalytics();
+    expect(analytics.analyticsEnabled()).toBe(false);
+    await analytics.initAnalytics();
+    analytics.track("anything");
+    expect(ph.loads).toBe(0);
+    expect(ph.calls).toEqual([]);
+    expect(store.has("omb-installed")).toBe(false);
+  });
+
+  it("stays off when the switch in Settings is turned on", async () => {
+    const analytics = await freshAnalytics();
+    analytics.setAnalyticsEnabled(true);
+    await analytics.initAnalytics();
+    analytics.track("anything");
+    expect(analytics.analyticsEnabled()).toBe(false);
+    expect(ph.loads).toBe(0);
+    expect(ph.calls).toEqual([]);
   });
 });
