@@ -18,7 +18,6 @@ import {
 } from "./memory-journal.ts";
 import type { ModelSelection } from "./contracts.ts";
 import * as mdb from "./message-db.ts";
-import { peerAllowKey } from "./peer-approval-key.ts";
 import { hasTeamAuthority } from "./peer-roster.ts";
 import { Store, toWireTask, type BotRecord } from "./store.ts";
 import type { TeamSetupRequest } from "../shared/team-setup.ts";
@@ -1210,29 +1209,6 @@ describe("Store", () => {
     expect(reloadedAgain.bot(suffixed.id)?.browserProfile).toBe("work-2");
   });
 
-  it("migrates unambiguous legacy peer grants without guessing duplicate names", () => {
-    const store = new Store(selection);
-    const requester = store.createBot();
-    const helper = store.patchBot(store.createBot().id, { name: "Helper" })!;
-    store.patchBot(store.createBot().id, { name: "Twin" });
-    store.patchBot(store.createBot().id, { name: "Twin" });
-    store.patchBot(requester.id, {
-      alwaysAllow: ["ask_bot:@Helper", "delegate_bot:@Twin", "Bash:git status"],
-    });
-
-    const reloaded = new Store(selection);
-    expect(reloaded.bot(requester.id)?.alwaysAllow).toEqual([
-      peerAllowKey("ask_bot", helper.id),
-      "delegate_bot:@Twin",
-      "Bash:git status",
-    ]);
-
-    const persisted: BotRecord[] = JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"));
-    expect(persisted.find((bot) => bot.id === requester.id)?.alwaysAllow).toEqual(
-      reloaded.bot(requester.id)?.alwaysAllow,
-    );
-  });
-
   it("promotes task-only provider tool grants to the bot default", () => {
     const store = new Store(selection);
     const bot = store.createBot();
@@ -1245,6 +1221,7 @@ describe("Store", () => {
       alwaysAllow: ["provider-tool:claude:linear:list_comments:config-one"],
     });
 
+    rmSync(join(DATA_DIR, "always-allow-recovered"), { force: true }); // a data folder from the version that saved them there
     const reloaded = new Store(selection);
     expect(reloaded.bot(bot.id)?.alwaysAllow).toEqual([
       "provider-tool:claude:linear:list_comments:config-one",
@@ -1259,6 +1236,51 @@ describe("Store", () => {
     expect(persisted.find((candidate) => candidate.id === bot.id)?.alwaysAllow).toEqual(
       reloaded.bot(bot.id)?.alwaysAllow,
     );
+  });
+
+  it("says how many grants it kept when a bot's threads hold more than its list has room for, and drops none of the bot's own", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const own = Array.from({ length: 195 }, (_, i) => `provider-tool:claude:linear:own_${i}:config-one`);
+    const inThread = Array.from({ length: 12 }, (_, i) => `provider-tool:claude:linear:thread_${i}:config-one`);
+    store.patchBot(bot.id, { alwaysAllow: own });
+    store.patchTask(bot.id, bot.threadId, { alwaysAllow: [...inThread, "Bash:git status"] });
+    rmSync(join(DATA_DIR, "always-allow-recovered"), { force: true });
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const reloaded = new Store(selection);
+      expect(reloaded.bot(bot.id)?.alwaysAllow).toEqual([...own, ...inThread.slice(0, 5)]);
+      expect(reloaded.taskByThread(bot.id, bot.threadId)?.alwaysAllow, "what did not fit leaves the thread too").toEqual([...inThread.slice(0, 5), "Bash:git status"]);
+      new Store(selection);
+      const lines = warned.mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith("[always-allow]"));
+      expect(lines, "said once, not at every start").toEqual([`[always-allow] bot ${bot.id}: kept 200 of 207 always-allowed tools (the limit is 200); the other 7 ask again.`]);
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  it("removes a grant from every thread in one save, and a restart does not bring it back", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const [kept, removed] = ["provider-tool:claude:linear:list_issues:config-one", "provider-tool:claude:linear:list_comments:config-one"];
+    store.patchBot(bot.id, { alwaysAllow: [kept, removed] });
+    store.patchTask(bot.id, bot.threadId, { alwaysAllow: [kept, removed, "Bash:git status"] });
+    const sibling = store.createTask(bot.id)!;
+    expect(sibling.alwaysAllow).toEqual([kept, removed]);
+    const save = vi.spyOn(store as unknown as { saveBots(): void }, "saveBots");
+    expect(store.rewriteGrants(bot.id, (keys) => (keys.includes(removed) ? keys.filter((key) => key !== removed) : null), true)).toBe(true);
+    expect(save).toHaveBeenCalledOnce();
+    expect(store.rewriteGrants(bot.id, () => null)).toBe(false);
+    expect(store.rewriteGrants("nobody", () => [])).toBe(false);
+    expect(save).toHaveBeenCalledOnce();
+    save.mockRestore();
+    for (const loaded of [store, new Store(selection), new Store(selection)]) {
+      expect(loaded.bot(bot.id)?.alwaysAllow).toEqual([kept]);
+      expect(loaded.tasks(bot.id).map((task) => task.alwaysAllow)).toEqual([[kept], [kept, "Bash:git status"]]);
+    }
+    // A thread left holding a copy by an earlier version does not hand it back to the bot at the next start.
+    store.patchTask(bot.id, sibling.threadId, { alwaysAllow: [kept, removed] });
+    expect(new Store(selection).bot(bot.id)?.alwaysAllow).toEqual([kept]);
   });
 
   it("persists a bot's effort level across a restart, defaulting to unset", () => {
@@ -1287,6 +1309,41 @@ describe("Store", () => {
       expect(bot.modelSelection.effort).toBe("medium");
       expect(bot.tasks?.[0].modelSelection).toBeUndefined();
     }
+  });
+
+  it("gives a new department to a Chief in charge of every department once the write that made it is saved", async () => {
+    const store = new Store(selection);
+    const lead = store.createBot({ name: "Lead", section: "Ops" });
+    // Made Chief only after Ops was made: Ops is its own department, never one it was given.
+    store.patchBot(lead.id, { chiefOfStaff: true, managedSections: [""] });
+    const planner = store.createBot({ name: "Planner" });
+    store.setChiefOfStaff(planner.id);
+    store.applyTeamSetup({ version: 1, requestId: "setup-new-team", botId: planner.id, threadId: planner.threadId,
+      reason: "Requested", createdAt: 1, requesterRevision: "fixture", newTeams: ["Research"], operations: [
+        { action: "create", botId: "researcher", threadId: "researcher-thread", fields: { name: "Researcher", section: "Research", modelSelection: selection() } },
+      ] });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(store.bot(lead.id)?.managedSections).toEqual(["", "Research"]);
+    // Planner was in charge of General alone; the setup's own grant is the only one it has.
+    expect(store.bot(planner.id)?.managedSections).toEqual(["Research"]);
+    const restored = new Store(selection);
+    expect(restored.bot("researcher")?.section).toBe("Research");
+    expect(restored.bot(lead.id)?.managedSections).toEqual(["", "Research"]);
+  });
+
+  it("gives the main Chief each department one run makes before the first grant lands, except one removed again", async () => {
+    const store = new Store(selection);
+    const chief = store.createBot({ name: "Chief" });
+    store.setChiefOfStaff(chief.id);
+    store.createBot({ name: "First", section: "First team" });
+    store.createBot({ name: "Second", section: "Second team" });
+    // A failed import rolls its new department back the same way.
+    const member = store.createBot({ name: "Imported", section: "Imported team" });
+    store.deleteBot(member.id);
+    expect(store.changeEmptySection("Imported team", null)).toBeUndefined();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(store.bot(chief.id)?.managedSections).toEqual(["First team", "Second team"]);
+    expect(new Store(selection).bot(chief.id)?.managedSections).toEqual(["First team", "Second team"]);
   });
 
   it("lands a created specialist in its proposed working folder, keeping the private workspace clean", () => {
@@ -2605,7 +2662,7 @@ describe("soul", () => {
       ] };
     store.applyTeamSetup(request);
     expect(new Store(selection).bot("created-by-chief")?.visibility).toEqual({ people: ["hr@example.test"] });
-    expect(new Store(selection).bot("created-by-chief")).toMatchObject({ autoApprove: false, approvePeerComms: false });
+    expect(new Store(selection).bot("created-by-chief")).toMatchObject({ autoApprove: false });
     const open = new Store(selection);
     const everyoneChief = open.createBot({ name: "Ops", section: "Ops" });
     open.patchBot(everyoneChief.id, { chiefOfStaff: true });
@@ -2635,7 +2692,7 @@ describe("soul", () => {
       connectorTools: { gmail: { tools: ["GMAIL_FETCH_EMAILS"] }, slack: { tools: "*" } },
       connectorScopes: { apps: { gmail: "read", slack: "write" } } });
     expect(grantsOf(new Store(selection).bot("helper")!)).toEqual(grantsOf(helper));
-    expect(helper).toMatchObject({ autoApprove: false, approvePeerComms: false });
+    expect(helper).toMatchObject({ autoApprove: false });
     chief.connectorScopes!.apps.gmail = "write";
     (chief.connectorTools!.gmail.tools as string[]).push("GMAIL_SEND_EMAIL");
     expect(helper.connectorScopes?.apps.gmail, "a copy, not the Chief's own record").toBe("read");

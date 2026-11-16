@@ -6,6 +6,7 @@ import type { EffortLevel } from "../shared/wire.ts";
 import type {
   DriverKind, InstanceId, ModelVariantOption, RuntimeEventListener, ThreadId, TurnId,
 } from "../shared/runtime-events.ts";
+import type { LocalModelFacts, OllamaProblem } from "../shared/local-model.ts";
 import type { ProviderIcon } from "../shared/provider-icon.ts";
 
 export type { CloudBackend, EffortLevel, ModelSelection } from "../shared/wire.ts";
@@ -212,6 +213,8 @@ export interface SendTurnInput {
   mcpFromUserConfig?: boolean;
   /** Claude Code loads the person's own `~/.claude/skills` from this folder's `.claude/skills` (`--add-dir`). */
   userSkillsDir?: string;
+  /** Harness-selected SKILL.md files available to this turn; a driver may stage their folders for native file access. */
+  skillFiles?: readonly string[];
   /** The bot's own Claude Code settings: `.claude/settings.json` in its working folder, else in its own folder. A Claude
    * turn in any other folder takes their hooks, plugins, permission rules and env. */
   botSettingsFile?: string;
@@ -362,7 +365,10 @@ export interface ProviderSnapshot {
   update?: {
     title: string;
     message: string;
-    command: string;
+    /** Absent when there is nothing to run here, e.g. My Cloud's engines update with the Cloud. */
+    command?: string;
+    /** False when the app installer cannot supply this version; offer the terminal command instead. */
+    serverInstall?: false;
   };
   /** On a subscription a reported cost is notional. */
   billing?: "metered" | "subscription";
@@ -371,6 +377,8 @@ export interface ProviderSnapshot {
     title: string;
     message: string;
   };
+  /** Set with `unavailable` on a server recognised as Ollama: what stops it, for the app to say in its own words. */
+  ollama?: OllamaProblem;
 }
 
 // How a user installs this engine; onboarding, the picker and settings render from it.
@@ -462,7 +470,8 @@ export interface ProviderAuthenticationStart {
 }
 
 export interface ProviderAuthenticationStatus extends Omit<ProviderAuthenticationStart, "phase"> {
-  phase: "waiting" | "succeeded" | "failed" | "expired" | "cancelled";
+  /** `verifying`: the person's part is done and the provider is finishing the sign-in. */
+  phase: "waiting" | "verifying" | "succeeded" | "failed" | "expired" | "cancelled";
   /** Safe, actionable copy; never unfiltered CLI output or credentials. */
   message?: string;
 }
@@ -482,6 +491,9 @@ export interface ModelCatalog {
     variants?: ModelVariantOption[];
     /** The organization of the signed-in account turned this model off: the engine would answer with another. */
     orgBlocked?: true;
+    /** The installed CLI is too old for this model: the version it needs. */
+    needsCliUpdate?: string;
+    local?: LocalModelFacts;
   }>;
 }
 
@@ -561,7 +573,8 @@ export interface ProviderInstance {
   /** Optional first-party runtime installation and account setup. */
   readonly installRuntime?: () => Promise<void>;
   readonly startAuthentication?: () => Promise<ProviderAuthenticationStart>;
-  readonly authenticationMethod?: "browser-pkce";
+  /** Named when the calls an instance offers do not tell its sign-in apart; `callback-url` is a link plus a redirect URL pasted back. */
+  readonly authenticationMethod?: "browser-pkce" | "browser" | "callback-url";
   readonly getAuthentication?: (flowId: string) => Promise<ProviderAuthenticationStatus>;
   readonly completeAuthentication?: (flowId: string, callbackUrl: string) => Promise<void>;
   readonly cancelAuthentication?: () => Promise<void>;

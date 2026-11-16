@@ -30,13 +30,20 @@ export const addEndpointSchema = z.object({
   url: z.string().max(512),
   key: z.string().trim().min(1).max(4096),
   models: z.array(z.string().trim().min(1).max(200)).max(64).optional(),
-  catalog: z.literal("lmstudio").optional(),
+  catalog: z.enum(["lmstudio", "ollama"]).optional(),
 }).strict();
 
 export type AddEndpoint = z.infer<typeof addEndpointSchema>;
 
 export function isAddedEndpoint(instanceId: string, entry: InstanceConfig | undefined): boolean {
   return entry?.driver === "openai-compat" && instanceId.startsWith(ADDED_ENDPOINT_PREFIX);
+}
+
+/** Ollama and LM Studio are added once per address: a second entry only shows the same engine twice. Returns why, or null. */
+export function localServerAlreadyAdded(instances: InstanceConfigMap, rawUrl: string): string | null {
+  const url = endpointBaseUrl(rawUrl);
+  const existing = url ? Object.entries(instances).find(([instanceId, entry]) => isAddedEndpoint(instanceId, entry) && endpointDisplayUrl(entry.config) === url) : undefined;
+  return existing ? `"${existing[1].displayName ?? existing[0]}" at ${url} is already an engine (${existing[0]}). Use that one; do not add it again.` : null;
 }
 
 export function addEndpoint(instances: InstanceConfigMap, body: AddEndpoint): { instanceId: string } | { error: string } {

@@ -23,6 +23,11 @@ const BLOCKED = [
   "https://github.com/%6Dilind-soni/OpenMausBot",
   "http://cloud.openmausbot.com:8080/x",
   "https://logos.composio.dev/api/slack",
+  "https://openmausbot.com/x",
+  "https://posthog.com/e/",
+  "https://c-0a1b2c.mausbot.si/",
+  "https://codeload.github.com/milind-soni/OpenMausBot/zip/main",
+  "https://google.com/s2/favicons?domain=x.com",
 ];
 
 const ALLOWED = [
@@ -41,6 +46,9 @@ const ALLOWED = [
   "https://api.github.com/users/milind-soni",
   "https://backend.composio.dev/api/v3/toolkits",
   "https://connect.composio.dev/link/x",
+  "https://mausbot.si.example/x",
+  "https://codeload.github.com/other/repo/zip/main",
+  "https://google.com/search?q=s2/favicons",
   "http://127.0.0.1:5173/api/bots",
   "file:///C:/cloud.openmausbot.com/x",
   "not a url",
@@ -62,6 +70,7 @@ test("the fetch wrapper refuses a denylisted request without calling the network
     "https://us.i.posthog.com/e/",
     new URL("https://cloud.openmausbot.com/x"),
     new Request("https://openmausbot-composio.milindsoni201.workers.dev/v1/me"),
+    { toString: () => "https://cloud.openmausbot.com/y" },
   ]) {
     await assert.rejects(fetch(input), (error) => error instanceof TypeError && /egress/.test(error.message));
   }
