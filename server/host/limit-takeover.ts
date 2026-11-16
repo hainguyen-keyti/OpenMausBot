@@ -28,8 +28,11 @@ export const MODEL_HOLD_MS = 6 * 60 * 60_000;
 /** A signed-out AI is tried again by a new turn no sooner than this after its last refusal, in case it signed in again
  * some way this server did not see; a finished sign-in in the app, or a turn on it that works, ends the hold at once. */
 export const SIGNED_OUT_RECHECK_MS = UNNAMED_LIMIT_MS;
-/** A sign-out's one notice stands until the AI is signed in again or works; past this it is said again. */
+/** A sign-out's first notice to a bot stands until the AI is signed in again or works. */
 const SIGNED_OUT_STRETCH_MS = 30 * 24 * 60 * 60_000;
+/** Refusals never end a sign-out's stretch, so the person is told again this often, once across all bots. */
+export const SIGNED_OUT_REPEAT_MS = 24 * 60 * 60_000;
+const EVERY_BOT = "every-bot";
 
 /** A model held by its own limit: until when, when the limit said it resets, and which limit it is. */
 export interface ModelHold { until: number; resetsAt?: number; scope: "model" | "credits" }
@@ -48,9 +51,9 @@ export interface LimitTakeoverDeps {
   configs(): InstanceConfigMap;
   context: DefaultSelectionContext;
   /** Until when this engine refuses work, or null. */
-  blockedUntil(instanceId: string): number | null;
+  blockedUntil(instanceId: string, model?: string): number | null;
   /** When this engine's limit resets, when that is known. */
-  resetAt?(instanceId: string): number | null;
+  resetAt?(instanceId: string, model?: string): number | null;
   /** The backups the person chose for this bot, or for every bot. */
   chosen(botId: string): ModelSelection[];
   /** The backups a signed-out AI's turns go to, as for a turn its AI never started: the bot's own list, or the
@@ -68,6 +71,8 @@ export interface LimitTakeoverDeps {
   signedOutNow?(instanceId: string): boolean;
   /** A sign-out was first noticed: what the app shows of that AI's sign-in is read again. */
   signedOutNoticed?(instanceId: string): void;
+  /** The bots that run on this AI, for the sign-out notice's list of those with nothing to carry on for them. */
+  botsOn?(instanceId: string): Array<ThreadBot & { modelSelection: ModelSelection }>;
   now?(): number;
 }
 
@@ -157,7 +162,7 @@ export function createLimitTakeover(deps: LimitTakeoverDeps) {
 
   const usable = (engines: TakeoverEngine[], current: TakeoverEngine, selection: ModelSelection, scope: TakeoverScope, approval?: ApprovalMode): boolean => {
     const engine = engines.find((candidate) => candidate.instanceId === selection.instanceId);
-    if (!engine || !readyToRun(engine, deps.context) || deps.blockedUntil(engine.instanceId) !== null || modelHeld(selection) !== null) return false;
+    if (!engine || !readyToRun(engine, deps.context) || deps.blockedUntil(engine.instanceId, selection.model) !== null || modelHeld(selection) !== null) return false;
     if (engine.instanceId !== current.instanceId) {
       if (signedOutHeld(engine.instanceId)) return false;
       // Another sign-in to the same plan never carries a limit (that rotates accounts); it may stand in for one signed out.
@@ -199,14 +204,17 @@ export function createLimitTakeover(deps: LimitTakeoverDeps) {
   const refusedName = (from: ModelSelection, scope: TakeoverScope) => (scope === "model" || scope === "credits"
     ? `${deps.engineName(from.instanceId)} ${from.model}` : deps.engineName(from.instanceId));
 
-  /** Once for this stretch of `from`'s limit or sign-out: which AI carries on for `bot` meanwhile, or that it waits.
-   * The words told, or null when this stretch was told already. */
+  /** Once for this stretch of `from`'s limit or sign-out, and for a sign-out again every SIGNED_OUT_REPEAT_MS: which AI carries
+   * on for `bot` meanwhile, or that it waits. The words told, or null when there is nothing to say now. */
   const tell = (bot: Bot, from: ModelSelection, facts: { resetsAt?: number; scope?: TakeoverScope; backup?: ModelSelection }): string | null => {
     const scope = facts.scope ?? "engine";
     const signOut = scope === "signed-out";
-    if (!notices.first(bot.id, limitedKey(from, scope), signOut ? now() + SIGNED_OUT_STRETCH_MS : facts.resetsAt)) return null;
+    const first = notices.first(bot.id, limitedKey(from, scope), signOut ? now() + SIGNED_OUT_STRETCH_MS : facts.resetsAt);
+    const scheduled = signOut && notices.due(EVERY_BOT, limitedKey(from, scope), SIGNED_OUT_REPEAT_MS);
+    if (!first && !scheduled) return null;
     const backup = facts.backup ? { backup: label(facts.backup, from) } : {};
-    const text = signOut ? signedOutNoticeText({ engine: refusedName(from, scope), bot: bot.name, where: deps.where ?? "on this computer", ...backup })
+    const stuck = signOut && !facts.backup ? (deps.botsOn?.(from.instanceId) ?? []).filter((one) => backups(one.id, one.modelSelection, "signed-out", approvalModeFor(one)).length === 0).map((one) => one.name) : [];
+    const text = signOut ? signedOutNoticeText({ engine: refusedName(from, scope), bot: bot.name, where: deps.where ?? "on this computer", ...backup, ...(stuck.length ? { stuck } : {}) })
       : limitNoticeText({ engine: refusedName(from, scope), bot: bot.name, ...(facts.resetsAt ? { resetsAt: facts.resetsAt } : {}), ...(scope === "credits" ? { credits: true } : {}), ...backup });
     deps.tell(bot, text);
     return text;
@@ -245,13 +253,13 @@ export function createLimitTakeover(deps: LimitTakeoverDeps) {
      * with no refused turn first. Null when nothing holds it, or when nothing could carry on and the AI is tried as
      * usual. `recovering`: Automatic recovery has backups of its own for a limit. */
     heldAtStart(bot: ThreadBot, selection: ModelSelection, recovering = false): { scope: TakeoverScope; resetsAt?: number } | null {
-      const engineUntil = deps.blockedUntil(selection.instanceId);
+      const engineUntil = deps.blockedUntil(selection.instanceId, selection.model);
       const model = engineUntil === null ? modelHeld(selection) : null;
       const scope: TakeoverScope | null = engineUntil !== null ? "engine" : model ? model.scope : signedOutHeld(selection.instanceId) ? "signed-out" : null;
       if (!scope) return null;
       const carries = (deps.enabled?.() ?? true) && backups(bot.id, selection, scope, approvalModeFor(bot)).length > 0;
       if (!carries && !(recovering && scope !== "signed-out")) return null;
-      const resetsAt = scope === "engine" ? deps.resetAt?.(selection.instanceId) ?? undefined : model?.resetsAt;
+      const resetsAt = scope === "engine" ? deps.resetAt?.(selection.instanceId, selection.model) ?? undefined : model?.resetsAt;
       return { scope, ...(resetsAt && resetsAt > now() ? { resetsAt } : {}) };
     },
     /** Every runtime event of a bot's thread, with the model its turn ran on: a model's own limit holds that model, a

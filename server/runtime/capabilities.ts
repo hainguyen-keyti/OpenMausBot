@@ -21,6 +21,8 @@ const ENGINES: Readonly<Record<string, EngineRow>> = {
   claudeAgent: { resume: true },
   codex: { resume: true },
   piAgent: { resume: true },
+  ompAgent: { resume: true },
+  mistralVibeAgent: { resume: true },
   antigravityAgent: { resume: true },
   grokAgent: { resume: true },
   geminiAgent: { resume: true },
@@ -36,6 +38,7 @@ const ENGINES: Readonly<Record<string, EngineRow>> = {
   copilotAgent: { resume: true },
   commandCodeAgent: { resume: true },
   kiroAgent: { resume: true },
+  devinAgent: { resume: true },
   customAcp: { resume: true },
   "openai-compat": CHAT_ROW,
   grok: CHAT_ROW,
@@ -44,6 +47,7 @@ const ENGINES: Readonly<Record<string, EngineRow>> = {
   cerebras: CHAT_ROW,
   groq: CHAT_ROW,
   greenference: CHAT_ROW,
+  modelgo: CHAT_ROW,
   meta: CHAT_ROW,
 };
 
