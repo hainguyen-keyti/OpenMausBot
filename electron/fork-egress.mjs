@@ -1,15 +1,18 @@
 // The upstream services this fork's build never contacts on its own (DECISIONS 2026-11-10). The single source of the
 // denylist: the server's fetch guard imports it too. A redirect followed by Node's fetch is not re-checked here.
 
-/** `suffix` blocks every subdomain of a host; `host` one exact host; `path` narrows it to a path prefix (lowercase). */
+/** `suffix` blocks a domain and every subdomain; `host` one exact host; `path` narrows it to a path prefix (lowercase). */
 export const DENYLIST = Object.freeze([
   { suffix: "posthog.com" },
   { suffix: "openmausbot.com" },
+  { suffix: "mausbot.si" },
   { suffix: "milindsoni201.workers.dev" },
   { host: "omb-cloud-staging.fly.dev" },
   { host: "logos.composio.dev" },
   { host: "www.google.com", path: "/s2/favicons" },
+  { host: "google.com", path: "/s2/favicons" },
   { host: "github.com", path: "/milind-soni/" },
+  { host: "codeload.github.com", path: "/milind-soni/" },
   { host: "raw.githubusercontent.com", path: "/milind-soni/" },
   { host: "api.github.com", path: "/repos/milind-soni/" },
 ]);
@@ -30,7 +33,7 @@ export function isBlockedUrl(url) {
   const host = target.hostname.replace(/\.$/, "");
   const path = normalizedPath(target.pathname);
   return DENYLIST.some((rule) => {
-    if (rule.suffix) return host.endsWith(`.${rule.suffix}`);
+    if (rule.suffix) return host === rule.suffix || host.endsWith(`.${rule.suffix}`);
     return host === rule.host && (!rule.path || path.startsWith(rule.path));
   });
 }
@@ -38,7 +41,8 @@ export function isBlockedUrl(url) {
 function requestUrl(input) {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.href;
-  return input?.url;
+  if (typeof input?.url === "string") return input.url;
+  return String(input);
 }
 
 /** `fetchImpl` with denylisted requests refused as a network error, before anything is sent. */
