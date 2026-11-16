@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { guardFetch, quietEngineTelemetry } from "./fork-egress.ts";
@@ -53,5 +54,10 @@ describe("the server's egress guard", () => {
     await import("./fork-egress.ts");
     await expect(globalThis.fetch("https://us.i.posthog.com/e/")).rejects.toThrow(/egress/);
     expect(calls).toEqual([]);
+  });
+
+  it("is loaded by the server entry before any module other than the Cloud secrets boot", () => {
+    const imports = readFileSync(new URL("./index.ts", import.meta.url), "utf8").split(/\r?\n/).filter((line) => line.startsWith("import "));
+    expect(imports.slice(0, 2)).toEqual(['import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";', 'import "./fork-egress.ts";']);
   });
 });
