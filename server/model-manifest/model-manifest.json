@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-09T21:02:58Z",
+  "updatedAt": "2026-11-17T00:00:00Z",
   "engines": {
     "claude": {
       "default": "claude-sonnet-5",
@@ -32,6 +32,12 @@
           "id": "claude-opus-5",
           "name": "Claude Opus 5",
           "status": "current"
+        },
+        {
+          "id": "claude-opus-4-6",
+          "name": "Claude Opus 4.6",
+          "status": "current",
+          "contextWindow": 1000000
         },
         {
           "id": "claude-sonnet-5-5",
